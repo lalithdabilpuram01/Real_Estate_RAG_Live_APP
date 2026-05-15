@@ -1,0 +1,13 @@
+python-dotenv
+streamlit
+unstructured
+tiktoken
+langchain-chroma
+langchain-groq
+langchain-community
+protobuf
+langchain-huggingface
+langchain-classic
+langchain-text-splitters
+groq
+sentence-transformers
