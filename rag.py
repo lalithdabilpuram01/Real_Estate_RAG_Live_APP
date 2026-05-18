@@ -14,32 +14,38 @@ import warnings
 warnings.filterwarnings('ignore', category=UserWarning)
 
 import os
+# Load environment variables from the .env file (like API keys)
 load_dotenv()
 
+# Define constants for text chunking and vector storage
 CHUNK_SIZE = 1000
 COLLECTION_NAME = 'real_estate'
 VECTORSTORE_DIR = Path(__file__).parent/"resourses/vectorstore"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
+# Global variables to hold our Language Model and Vector Database instances
 llm = None
 vector_store = None
 
 def initialize_components():
+    """Initialize the Large Language Model and the Vector Database."""
     global llm, vector_store
 
+    # Initialize the LLM (Groq Llama 3) if it hasn't been set up yet
     if llm is None:
         llm = ChatGroq(model='llama-3.3-70b-versatile', temperature= 0.9, max_tokens= 500)
 
+    # Initialize the Vector Store (ChromaDB) if it hasn't been set up yet
     if vector_store is None:
-
+        # Define the embedding function used to convert text into mathematical vectors
         ef = HuggingFaceEmbeddings(model_name = EMBEDDING_MODEL,
                                    model_kwargs = {"trust_remote_code": True})
 
+        # Set up the Chroma vector store with persistent local storage
         vector_store = Chroma(
             collection_name= COLLECTION_NAME,
              embedding_function= ef,
             persist_directory=str(VECTORSTORE_DIR),
-
         )
 
 
@@ -47,39 +53,48 @@ def initialize_components():
 
 
 def process_urls(urls):
+    """Fetch content from URLs, chunk the text, and store it in the vector database."""
     yield "Initializing component"
-
     initialize_components()
 
     yield "resetting vector store"
-
+    # Clear out any previous data in the collection to ensure fresh results for new URLs
     vector_store.reset_collection()
 
-
+    # Load the documents from the provided web URLs
     loader = UnstructuredURLLoader(urls= urls)
 
     yield "loading data"
     data = loader.load()
 
     yield "splitting text into chunks"
+    # Set up the text splitter to divide large documents into smaller, semantic chunks for the LLM
     text_splitter = RecursiveCharacterTextSplitter(
         separators=['\n\n', '\n', '.', ' '],
         chunk_size= CHUNK_SIZE
         )
     docs = text_splitter.split_documents(data)
 
+    # Generate unique IDs for each individual text chunk
     uuids = [str(uuid4()) for _ in range(len(docs))]
     yield "adding docs to vector"
+    # Add the document chunks to the Chroma vector store so they can be searched later
     vector_store.add_documents(docs, ids= uuids)
 
 
 def generate_answer(query):
+    """Retrieve relevant context from the vector store and generate an answer using the LLM."""
     if not vector_store:
         raise RuntimeError("VectorDB is not initilaized")
 
+    # Set up the retrieval-augmented generation chain to link the LLM and the Vector DB
     chain = RetrievalQAWithSourcesChain.from_llm(llm=llm,retriever= vector_store.as_retriever())
+    
+    # Invoke the chain with the user's question
     result = chain.invoke({'question':  query},
                           return_only_outputs=True,)
+                          
+    # Extract the sources from the response provided by the LLM
     sources = result.get("sources", "")
 
     return result['answer'], sources
