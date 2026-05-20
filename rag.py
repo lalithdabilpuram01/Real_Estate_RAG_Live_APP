@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 from langchain_classic.chains import RetrievalQAWithSourcesChain
 #from langchain_classic.chains.qa_with_sources.retrieval import RetrievalQAWithSourcesChain
-from langchain_community.document_loaders import UnstructuredURLLoader
+from langchain_community.document_loaders import WebBaseLoader
 from langchain_groq import ChatGroq
 from langchain_chroma import Chroma
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
@@ -54,32 +54,52 @@ def initialize_components():
 
 def process_urls(urls):
     """Fetch content from URLs, chunk the text, and store it in the vector database."""
-    yield "Initializing component"
-    initialize_components()
+    try:
+        yield "Initializing components"
+        initialize_components()
 
-    yield "resetting vector store"
-    # Clear out any previous data in the collection to ensure fresh results for new URLs
-    vector_store.reset_collection()
+        yield "Resetting vector store"
+        # Clear out any previous data in the collection to ensure fresh results for new URLs
+        vector_store.reset_collection()
 
-    # Load the documents from the provided web URLs
-    loader = UnstructuredURLLoader(urls= urls)
-
-    yield "loading data"
-    data = loader.load()
-
-    yield "splitting text into chunks"
-    # Set up the text splitter to divide large documents into smaller, semantic chunks for the LLM
-    text_splitter = RecursiveCharacterTextSplitter(
-        separators=['\n\n', '\n', '.', ' '],
-        chunk_size= CHUNK_SIZE
+        yield "Scraping and loading data from URLs"
+        # Load the documents from the provided web URLs using WebBaseLoader for maximum reliability
+        loader = WebBaseLoader(
+            web_path=urls,
+            header_template={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
+            continue_on_failure=True
         )
-    docs = text_splitter.split_documents(data)
+        data = loader.load()
 
-    # Generate unique IDs for each individual text chunk
-    uuids = [str(uuid4()) for _ in range(len(docs))]
-    yield "adding docs to vector"
-    # Add the document chunks to the Chroma vector store so they can be searched later
-    vector_store.add_documents(docs, ids= uuids)
+        if not data:
+            yield "Error: Could not retrieve any content from the provided URLs."
+            return
+
+        yield "Splitting text into chunks"
+        # Set up the text splitter to divide large documents into smaller, semantic chunks for the LLM
+        text_splitter = RecursiveCharacterTextSplitter(
+            separators=['\n\n', '\n', '.', ' '],
+            chunk_size=CHUNK_SIZE
+        )
+        docs = text_splitter.split_documents(data)
+
+        if not docs:
+            yield "Error: No text chunks could be extracted from the documents."
+            return
+
+        # Generate unique IDs for each individual text chunk
+        uuids = [str(uuid4()) for _ in range(len(docs))]
+        
+        yield "Adding chunks to vector database"
+        # Add the document chunks to the Chroma vector store so they can be searched later
+        vector_store.add_documents(docs, ids=uuids)
+        
+        yield "Success: URLs processed successfully!"
+
+    except Exception as e:
+        yield f"Error processing URLs: {str(e)}"
 
 
 def generate_answer(query):

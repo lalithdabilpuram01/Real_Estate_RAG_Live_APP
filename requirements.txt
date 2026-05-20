@@ -1,6 +1,7 @@
 python-dotenv
 streamlit
-unstructured
+beautifulsoup4
+lxml
 tiktoken
 langchain-chroma
 langchain-groq
